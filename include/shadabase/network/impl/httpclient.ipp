@@ -202,6 +202,80 @@ namespace http_client {
 		else if (url.scheme() == "https")
 			co_await async_download_https(url, save_to);
 	}
+
+	inline net::awaitable<http_response> async_post_http(
+		const boost::urls::url& url,
+		const std::map<std::string, std::string>& headers,
+		const std::string_view& body) {
+		net::io_context ioc;
+		auto host = url.host();
+		uint16_t port = url.has_port() ? url.port_number() : 80;
+
+		tcp::socket socket(co_await net::this_coro::executor);
+		tcp::resolver resolver(co_await net::this_coro::executor);
+		auto endpoint = co_await resolver.async_resolve(host, std::to_string(port), net::use_awaitable);
+		co_await net::async_connect(socket, endpoint, net::use_awaitable);
+
+		// Http request send
+		http::request<http::string_body> req(http::verb::post, url.encoded_target(), 11);
+		req.set(http::field::host, host);
+		req.set(http::field::content_type, "text/plain");
+		for(const auto& [k, v] : headers)
+			req.set(k, v);
+		req.body() = body;
+		req.prepare_payload();
+		co_await http::async_write(socket, req, net::use_awaitable);
+
+		// This buffer is used for reading and must be persisted
+		beast::flat_buffer buffer;
+
+		// Get the response
+		// http::response<http::string_body> res;
+
+		// Receive the HTTP response
+		// co_await http::async_read(socket, buffer, res, net::use_awaitable);
+
+		http::response<http::dynamic_body> res;
+		http::response_parser<http::dynamic_body> p;
+		co_await http::async_read_header(socket, buffer, p, net::use_awaitable);
+		// move the result over
+		res = p.release();
+		std::cout << res << std::endl;
+		while (true) {
+			http::response<http::string_body> res2;
+			beast::flat_buffer buffer2;
+			http::response_parser<http::string_body> p2;
+			co_await http::async_read_some(socket, buffer2, p2, net::use_awaitable);
+			res2 = p2.release();
+			std::cout << res2 << std::endl;
+		}
+
+		http_response http_res;
+		http_res.set_status_int(res.result_int());
+		http_res.set_reason(res.reason());
+		// http_res.set_body(std::move(res.body()));
+		http_headers res_headers;
+		for (auto it = res.begin(); it != res.end(); it++)
+			res_headers[it->name_string()] = it->value();
+		http_res.set_headers(res_headers);
+
+		boost::system::error_code sys_ec;
+		socket.shutdown(net::socket_base::shutdown_both, sys_ec);
+
+		co_return http_res;
+	}
+
+	inline net::awaitable<http_response> async_post(
+		std::string_view str_url,
+		const std::map<std::string, std::string>& headers,
+		std::string_view body) {
+		boost::urls::url url(str_url);
+		if (url.scheme() == "http")
+			co_return co_await async_post_http(url, headers, body);
+		//else if (url.scheme() == "https")
+		//	return co_await async_post(url, headers, body);
+		co_return http_response{};
+	}
 }		// namespace http_client
 }		// namespace network
 }		// namespace shadabase
