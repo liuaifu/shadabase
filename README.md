@@ -29,8 +29,9 @@ shadabase 是一个高效、模块化的 C++ 基础类库，旨在为开发者�
 2. 安装：
    ```bash
    cd shadabase
-   mkdir build
-   cd build
+   mkdir builds
+   cd builds
+   cmake ..
    make
    sudo make install
    ```
